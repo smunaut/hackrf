@@ -114,6 +114,7 @@ bool set_freq(uint32_t freq_mhz, uint32_t freq_hz)
 
 	success = true;
 
+	gpio_clear(PORT_XCVR_ENABLE, (PIN_XCVR_RXENABLE | PIN_XCVR_TXENABLE));
 	if(freq_mhz >= MIN_LP_FREQ_MHZ)
 	{
 		if(freq_mhz < MAX_LP_FREQ_MHZ)
@@ -169,6 +170,12 @@ bool set_freq(uint32_t freq_mhz, uint32_t freq_hz)
 		/* Error freq_mhz too low */
 		success = false;
 	}
+
+	if(transceiver_mode == TRANSCEIVER_MODE_RX)
+		gpio_set(PORT_XCVR_ENABLE, PIN_XCVR_RXENABLE);
+	else if(transceiver_mode == TRANSCEIVER_MODE_TX)
+		gpio_set(PORT_XCVR_ENABLE, PIN_XCVR_TXENABLE);
+
 	return success;
 }
 
