@@ -21,6 +21,8 @@
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 library UNISIM;
 use UNISIM.vcomponents.all;
@@ -31,13 +33,13 @@ entity top is
         HOST_CAPTURE    : out   std_logic;
         HOST_DISABLE    : in    std_logic;
         HOST_DIRECTION  : in    std_logic;
-           
+
         DA              : in    std_logic_vector(7 downto 0);
         DD              : out   std_logic_vector(9 downto 0);
 
         CODEC_CLK       : in    std_logic;
         CODEC_X2_CLK    : in    std_logic;
-           
+
         B1AUX           : inout std_logic_vector(16 downto 9);
         B2AUX           : inout std_logic_vector(16 downto 1)
     );
@@ -60,22 +62,32 @@ architecture Behavioral of top is
     signal data_from_host_i : std_logic_vector(7 downto 0);
     signal data_to_host_o : std_logic_vector(7 downto 0);
 
+    constant DCOFS_BITS : integer := 5;
+    signal dcofs_clk    : std_logic;
+    signal dcofs_bit    : std_logic;
+    signal dcofs_apply  : std_logic;
+    signal dcofs_sreg   : std_logic_vector(2*DCOFS_BITS-1 downto 0) := (others => '0');
+    signal dcofs_freg   : std_logic_vector(2*DCOFS_BITS-1 downto 0) := (others => '0');
+    signal dcofs_mux    : std_logic_vector(7 downto 0);
+
 begin
-    
-    B1AUX <= (others => '0');
-    B2AUX <= (others => '0');
-    
+
+    B1AUX(16 downto 12) <= (others => '0');
+    B1AUX(11 downto  9) <= (others => 'Z');
+    -- B2AUX <= (others => '0');
+    B2AUX <= (16 downto DCOFS_BITS*2+1 => '0') & dcofs_freg;
+
     ------------------------------------------------
     -- Codec interface
-    
-    adc_data_i <= DA(7 downto 0);    
+
+    adc_data_i <= DA(7 downto 0);
     DD(9 downto 0) <= dac_data_o;
-    
+
     ------------------------------------------------
     -- Clocks
-    
+
     codec_clk_i <= CODEC_CLK;
-    
+
     BUFG_host : BUFG
     port map (
         O => host_clk_i,
@@ -84,7 +96,7 @@ begin
 
     ------------------------------------------------
     -- SGPIO interface
-    
+
     HOST_DATA <= data_to_host_o when transfer_direction_i = from_adc
                                 else (others => 'Z');
     data_from_host_i <= HOST_DATA;
@@ -95,14 +107,14 @@ begin
                                    else from_adc;
 
     ------------------------------------------------
-    
+
     process(host_clk_i)
     begin
         if rising_edge(host_clk_i) then
-            data_to_host_o <= adc_data_i;
+            data_to_host_o <= adc_data_i + dcofs_mux;
         end if;
     end process;
-    
+
     process(host_clk_i)
     begin
         if rising_edge(host_clk_i) then
@@ -113,7 +125,7 @@ begin
             end if;
         end if;
     end process;
-    
+
     process(host_clk_i, codec_clk_i)
     begin
         if rising_edge(host_clk_i) then
@@ -128,5 +140,35 @@ begin
             end if;
         end if;
     end process;
-    
+
+
+    ------------------------------------------------
+    -- DC offset register
+
+    dcofs_clk   <= B1AUX(9);
+    dcofs_bit   <= B1AUX(10);
+    dcofs_apply <= B1AUX(11);
+
+    process (dcofs_clk)
+    begin
+        if rising_edge(dcofs_clk) then
+            dcofs_sreg <= dcofs_sreg(dcofs_sreg'left-1 downto 0) & dcofs_bit;
+        end if;
+    end process;
+
+    process (host_clk_i)
+    begin
+        if rising_edge(host_clk_i) then
+            if dcofs_apply = '1' then
+                dcofs_freg <= dcofs_sreg;
+            end if;
+        end if;
+    end process;
+
+    dcofs_mux(DCOFS_BITS-1 downto 0) <=
+        dcofs_freg(2*DCOFS_BITS-1 downto DCOFS_BITS)
+            when codec_clk_i = '1' else dcofs_freg(DCOFS_BITS-1 downto 0);
+
+    dcofs_mux(7 downto DCOFS_BITS) <= (others => dcofs_mux(DCOFS_BITS-1));
+
 end Behavioral;
